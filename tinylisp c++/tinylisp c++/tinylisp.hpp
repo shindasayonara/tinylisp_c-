@@ -4,147 +4,121 @@
 
 #include <vector>
 #include <string>
-#include <memory>
-#include <stdexcept>
 #include <cstdint>
-#include <unordered_map>
+#include <cstring>
+#include <stdexcept>
 
 class TinyLisp {
 public:
-    // ========== ТИПЫ (ТЕПЕРЬ PUBLIC) ==========
+    // Конструктор: выделяет память под стек и кучу
+    TinyLisp(size_t memory_size = 1024 * 1024);
+
+    // Главный метод: вычисляет код Lisp и возвращает строку-результат
+    std::string eval(const std::string& code);
+
+    // Запуск интерактивной оболочки
+    void repl();
+
+private:
+    // --- Типы данных ---
     using Value = float;
     using Index = uint32_t;
 
-    TinyLisp(size_t memory_size = 1024);
-
-    // Основной интерфейс
-    std::string eval(const std::string& code);
-    void repl();
-
-    // Состояние интерпретатора
-    bool had_error() const { return error_occurred; }
-    void reset();
-
-private:
-    // Теги типов
+    // Теги типов (как в оригинальном C-файле)
     static constexpr Index ATOM_TAG = 0x7fc;
     static constexpr Index PRIM_TAG = 0x7fd;
     static constexpr Index CONS_TAG = 0x7fe;
     static constexpr Index CLOS_TAG = 0x7ff;
     static constexpr Index NIL_TAG = 0xfff;
 
-    // ========== ВНУТРЕННЕЕ СОСТОЯНИЕ ==========
-    std::vector<Value> memory;
-    Index heap_ptr;
-    Index stack_ptr;
+    // --- Состояние интерпретатора ---
+    std::vector<Value> memory;    // Основная память (cell)
+    std::vector<char> string_heap; // Куча для строк (имен атомов)
+    Index sp; // Stack Pointer
+    Index hp; // Heap Pointer (индекс в string_heap)
 
-    // Системные константы
+    // Глобальные регистры (теперь члены класса)
     Value nil_value;
     Value true_value;
     Value error_value;
-    Value environment;
+    Value env; // Текущее окружение
 
-    // Строковая куча
-    std::vector<char> string_heap;
-
-    // Состояние парсера
+    // --- Состояние Парсера ---
+    std::string input_buffer;
+    size_t input_pos;
     char lookahead;
-    bool error_occurred;
+    char token_buffer[128];
 
-    // Таблица примитивных функций
+    // --- Структура примитива ---
     struct Primitive {
         const char* name;
-        // Указатель на метод класса (не const!)
-        Value(TinyLisp::* function)(Value args, Value env);
+        Value(TinyLisp::* func)(Value, Value);
     };
     std::vector<Primitive> primitives;
 
-    void initialize_primitives();
-
-    // ========== СИСТЕМНЫЕ ФУНКЦИИ ==========
-    // NaN-боксирование
+    // --- NaN Boxing / Unboxing ---
     Value box(Index tag, Index index) const;
-    Index get_tag(Value value) const;
-    Index get_index(Value value) const;
-    bool is_type(Value value, Index tag) const;
+    Index get_tag(Value val) const;
+    Index get_index(Value val) const; // Он же ord()
+    Index get_type_bits(Value val) const; // T(x)
 
-    // Базовые проверки типов
-    bool is_atom(Value value) const { return is_type(value, ATOM_TAG); }
-    bool is_cons(Value value) const { return is_type(value, CONS_TAG); }
-    bool is_closure(Value value) const { return is_type(value, CLOS_TAG); }
-    bool is_primitive(Value value) const { return is_type(value, PRIM_TAG); }
-    bool is_nil(Value value) const { return get_tag(value) == NIL_TAG; }
-    bool is_number(Value value) const {
-        return get_tag(value) != ATOM_TAG &&
-            get_tag(value) != PRIM_TAG &&
-            get_tag(value) != CONS_TAG &&
-            get_tag(value) != CLOS_TAG &&
-            get_tag(value) != NIL_TAG;
-    }
+    // --- Базовые операции (аналоги C-макросов и функций) ---
+    Value num(float n);
+    bool equ(Value x, Value y);
+    bool not_val(Value x);
+    Value atom(const char* s);
+    Value cons(Value x, Value y);
+    Value car(Value p);
+    Value cdr(Value p);
+    Value pair(Value v, Value x, Value e);
+    Value closure(Value v, Value x, Value e);
+    Value assoc(Value v, Value e);
 
-    // Операции с памятью
-    Value allocate_atom(const std::string& name);
-    Value allocate_cons(Value car, Value cdr);
-    Value allocate_closure(Value vars, Value body, Value env);
-    Value allocate_primitive(Index index);
+    // --- Ядро Lisp ---
+    Value eval_expr(Value x, Value e); // eval
+    Value evlis(Value t, Value e);
+    Value apply(Value f, Value t, Value e);
+    Value bind(Value v, Value t, Value e);
+    Value reduce(Value f, Value t, Value e);
 
-    // Доступ к данным
-    Value car(Value pair) const;
-    Value cdr(Value pair) const;
-    void set_car(Value pair, Value value);
-    void set_cdr(Value pair, Value value);
+    // --- Примитивные функции (реализация f_*) ---
+    Value p_eval(Value t, Value e);
+    Value p_quote(Value t, Value e);
+    Value p_cons(Value t, Value e);
+    Value p_car(Value t, Value e);
+    Value p_cdr(Value t, Value e);
+    Value p_add(Value t, Value e);
+    Value p_sub(Value t, Value e);
+    Value p_mul(Value t, Value e);
+    Value p_div(Value t, Value e);
+    Value p_int(Value t, Value e);
+    Value p_lt(Value t, Value e);
+    Value p_eq(Value t, Value e);
+    Value p_pair(Value t, Value e);
+    Value p_or(Value t, Value e);
+    Value p_and(Value t, Value e);
+    Value p_not(Value t, Value e);
+    Value p_cond(Value t, Value e);
+    Value p_if(Value t, Value e);
+    Value p_leta(Value t, Value e); // let*
+    Value p_lambda(Value t, Value e);
+    Value p_define(Value t, Value e);
 
-    // Управление окружением
-    Value make_env(Value vars, Value values, Value parent_env);
-    Value env_lookup(Value symbol, Value env) const;
-    Value env_define(Value symbol, Value value, Value env);
-
-    // Вычисление
-    Value evaluate(Value expression, Value env);
-    Value apply(Value function, Value args, Value env);
-    Value eval_list(Value list, Value env);
-
-    // Примитивные функции
-    Value prim_eval(Value args, Value env);
-    Value prim_quote(Value args, Value env);
-    Value prim_cons(Value args, Value env);
-    Value prim_car(Value args, Value env);
-    Value prim_cdr(Value args, Value env);
-    Value prim_add(Value args, Value env);
-    Value prim_sub(Value args, Value env);
-    Value prim_mul(Value args, Value env);
-    Value prim_div(Value args, Value env);
-    Value prim_lt(Value args, Value env);
-    Value prim_eq(Value args, Value env);
-    Value prim_pair(Value args, Value env);
-    Value prim_or(Value args, Value env);
-    Value prim_and(Value args, Value env);
-    Value prim_not(Value args, Value env);
-    Value prim_cond(Value args, Value env);
-    Value prim_if(Value args, Value env);
-    Value prim_define(Value args, Value env);
-    Value prim_lambda(Value args, Value env);
-    Value prim_let(Value args, Value env);
-
-    // Парсинг
-    void initialize_parser();
-    char get_char();
+    // --- Парсер и Принтер ---
+    void setup_input(const std::string& code);
+    void get_char();
     void skip_whitespace();
-    Value parse_expression();
+    char scan();
+    Value read_one();
     Value parse_list();
-    Value parse_atom();
+    Value parse_quote();
+    Value parse_atomic();
 
-    // Вывод
-    std::string value_to_string(Value value) const;
-    std::string list_to_string(Value list) const;
+    std::string print(Value x);
+    std::string print_list(Value t);
 
-    // Управление памятью
-    void garbage_collect();
-    void check_memory();
-    void expand_memory();
-
-    // Ошибки
-    void error(const std::string& message);
+    // --- Управление памятью ---
+    void gc();
 };
 
-#endif
+#endif // TINYLISP_HPP
